@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
-import { List, Checkbox, Button, Modal, Card, Typography, Spin, Tabs } from 'antd';
-import { DeleteOutlined, EditOutlined, LoadingOutlined, UndoOutlined } from '@ant-design/icons';
+import { useState, useMemo } from 'react';
+import { List, Checkbox, Button, Modal, Card, Typography, Spin, Tabs, Popconfirm } from 'antd';
+import { DeleteOutlined, EditOutlined, LoadingOutlined, UndoOutlined, ClearOutlined } from '@ant-design/icons';
 import {
   useGetTodosQuery,
   useAddTodoMutation,
   useUpdateTodoMutation,
   useDeleteTodoMutation,
+  usePermanentlyDeleteTodoMutation,
   type Todo
 } from './store/api';
 import { TodoForm } from './TodoForm';
@@ -18,6 +19,7 @@ function App() {
   const [addTodo, { isLoading: isAdding }] = useAddTodoMutation();
   const [updateTodo] = useUpdateTodoMutation();
   const [deleteTodo] = useDeleteTodoMutation();
+  const [permanentlyDeleteTodo] = usePermanentlyDeleteTodoMutation();
 
   // Состояние для редактирования
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -74,6 +76,29 @@ function App() {
     }
   };
 
+  // Очистка всех удаленных задач
+  const handleClearAllDeleted = async () => {
+    if (!todos) return;
+    
+    const deletedTodos = todos.filter(todo => todo.deleted);
+    
+    try {
+      // Удаляем все удаленные задачи параллельно
+      await Promise.all(
+        deletedTodos.map(todo => 
+          permanentlyDeleteTodo(todo.id).unwrap()
+        )
+      );
+    } catch (error) {
+      console.error('Ошибка при очистке удаленных задач:', error);
+    }
+  };
+
+  // Количество удаленных задач
+  const deletedCount = useMemo(() => {
+    return todos?.filter(item => item.deleted).length || 0;
+  }, [todos]);
+
   // Фильтрация задач по вкладкам
   const [activeTab, setActiveTab] = useState<string>('all');
   
@@ -115,18 +140,38 @@ function App() {
           items={[
             {
               key: 'all',
-              label: `Все (${todos?.filter(t => !t.deleted).length || 0})`,
+              label: `Все (${todos?.filter(item => !item.deleted).length || 0})`,
             },
             {
               key: 'completed',
-              label: `Выполненные (${todos?.filter(t => t.completed && !t.deleted).length || 0})`,
+              label: `Выполненные (${todos?.filter(item => item.completed && !item.deleted).length || 0})`,
             },
             {
               key: 'deleted',
-              label: `Удаленные (${todos?.filter(t => t.deleted).length || 0})`,
+              label: `Удаленные (${deletedCount})`,
             },
           ]}
           style={{ marginBottom: 16 }}
+          tabBarExtraContent={
+            activeTab === 'deleted' && deletedCount > 0 ? (
+              <Popconfirm
+                title="Очистить все удаленные задачи?"
+                description="Это действие нельзя отменить. Все удаленные задачи будут безвозвратно удалены."
+                onConfirm={handleClearAllDeleted}
+                okText="Да, очистить"
+                cancelText="Отмена"
+                okButtonProps={{ danger: true }}
+              >
+                <Button
+                  danger
+                  icon={<ClearOutlined />}
+                  size="small"
+                >
+                  Очистить все
+                </Button>
+              </Popconfirm>
+            ) : null
+          }
         />
 
         {/* Список задач */}
