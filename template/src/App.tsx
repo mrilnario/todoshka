@@ -1,12 +1,12 @@
-import React, { useState } from 'react'
+import React, { useState } from 'react';
 import { List, Checkbox, Button, Modal, Card, Typography, Spin } from 'antd';
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, LoadingOutlined } from '@ant-design/icons';
 import {
   useGetTodosQuery,
   useAddTodoMutation,
   useUpdateTodoMutation,
   useDeleteTodoMutation,
-  Todo
+  type Todo
 } from './store/api';
 import { TodoForm } from './TodoForm';
 
@@ -25,7 +25,11 @@ function App() {
 
   // Обработчики
   const handleCreate = async (data: { title: string }) => {
-    await addTodo({ title: data.title, completed: false });
+    try {
+      await addTodo({ title: data.title, completed: false }).unwrap();
+    } catch (error) {
+      console.error('Ошибка при создании задачи:', error);
+    }
   };
 
   const handleEditClick = (todo: Todo) => {
@@ -35,27 +39,39 @@ function App() {
 
   const handleUpdateSubmit = async (data: { title: string }) => {
     if (editingTodo) {
-      await updateTodo({ ...editingTodo, title: data.title });
-      setIsModalOpen(false);
-      setEditingTodo(null);
+      try {
+        await updateTodo({ ...editingTodo, title: data.title }).unwrap();
+        setIsModalOpen(false);
+        setEditingTodo(null);
+      } catch (error) {
+        console.error('Ошибка при обновлении задачи:', error);
+      }
     }
   };
 
-  const handleToggle = (todo: Todo) => {
-    updateTodo({ ...todo, completed: !todo.completed });
+  const handleToggle = async (todo: Todo) => {
+    try {
+      await updateTodo({ ...todo, completed: !todo.completed }).unwrap();
+    } catch (error) {
+      console.error('Ошибка при изменении статуса задачи:', error);
+    }
   };
 
-  const handleDelete = (id: number) => {
-    deleteTodo(id);
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteTodo(id).unwrap();
+    } catch (error) {
+      console.error('Ошибка при удалении задачи:', error);
+    }
   };
 
-  if (isLoading) return <Spin size="large" style={{ display: 'block', margin: '50px auto' }} />;
-  if (isError) return <div>Ошибка загрузки данных :( Проверь, запущен ли json-server</div>;
+  if (isLoading) return <Spin indicator={<LoadingOutlined spin />} size="large" style={{ display: 'block', margin: '50px auto' }} />;
+  if (isError) return <div style={{ textAlign: 'center', fontSize: '24px', fontWeight: 'bold', color: 'darkblue' }}>500 — Internal Server Error</div>;
 
   return (
     <div style={{ maxWidth: 600, margin: '50px auto', padding: '0 20px' }}>
       <Card>
-        <Title level={2} style={{ textAlign: 'center' }}>TODO LIST (RTK + Antd)</Title>
+        <Title level={1} style={{ textAlign: 'center' }}>todos</Title>
         
         {/* Форма создания */}
         <div style={{ display: 'flex', justifyContent: 'center' }}>
@@ -65,15 +81,17 @@ function App() {
         {/* Список задач */}
         <List
           bordered
-          dataSource={todos}
+          dataSource={todos || []}
           renderItem={(item) => (
             <List.Item
               actions={[
                 <Button 
+                  key="edit"
                   icon={<EditOutlined />} 
                   onClick={() => handleEditClick(item)} 
                 />,
                 <Button 
+                  key="delete"
                   danger 
                   icon={<DeleteOutlined />} 
                   onClick={() => handleDelete(item.id)} 
@@ -105,9 +123,11 @@ function App() {
       <Modal
         title="Редактировать задачу"
         open={isModalOpen}
-        onCancel={() => setIsModalOpen(false)}
-        footer={null} // Скрываем стандартный футер, используем кнопку формы
-        destroyOnClose
+        onCancel={() => {
+          setIsModalOpen(false);
+          setEditingTodo(null);
+        }}
+        footer={null}
       >
         {editingTodo && (
           <TodoForm 
