@@ -1,3 +1,10 @@
 {
-  "todos": []
+  "todos": [
+    {
+      "title": "adsad",
+      "completed": true,
+      "deleted": false,
+      "id": 1
+    }
+  ]
 }
