@@ -1,7 +1,5 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
-
-
 export interface Todo {
   id: number;
   title: string;
@@ -52,6 +50,14 @@ export const todoApi = createApi({
       }),
       invalidatesTags: (result, error, { id }) => [{ type: 'Todos', id }],
     }),
+    // 5. Физически удалить задачу (для очистки удаленных)
+    permanentlyDeleteTodo: builder.mutation<{ success: boolean; id: number }, number>({
+      query: (id) => ({
+        url: `todos/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, id) => [{ type: 'Todos', id }, { type: 'Todos', id: 'LIST' }],
+    }),
   }),
 });
 
@@ -60,4 +66,5 @@ export const {
   useAddTodoMutation,
   useUpdateTodoMutation,
   useDeleteTodoMutation,
+  usePermanentlyDeleteTodoMutation,
 } = todoApi;
