@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
-import { List, Checkbox, Button, Modal, Card, Typography, Spin, Tabs } from 'antd';
-import { DeleteOutlined, EditOutlined, LoadingOutlined } from '@ant-design/icons';
+import { useState, useMemo } from 'react';
+import { List, Checkbox, Button, Modal, Card, Typography, Spin, Tabs, Popconfirm } from 'antd';
+import { DeleteOutlined, EditOutlined, LoadingOutlined, UndoOutlined, ClearOutlined } from '@ant-design/icons';
 import {
   useGetTodosQuery,
   useAddTodoMutation,
   useUpdateTodoMutation,
   useDeleteTodoMutation,
+  usePermanentlyDeleteTodoMutation,
   type Todo
 } from './store/api';
 import { TodoForm } from './TodoForm';
@@ -18,6 +19,7 @@ function App() {
   const [addTodo, { isLoading: isAdding }] = useAddTodoMutation();
   const [updateTodo] = useUpdateTodoMutation();
   const [deleteTodo] = useDeleteTodoMutation();
+  const [permanentlyDeleteTodo] = usePermanentlyDeleteTodoMutation();
 
   // Состояние для редактирования
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -26,7 +28,7 @@ function App() {
   // Обработчики
   const handleCreate = async (data: { title: string }) => {
     try {
-      await addTodo({ title: data.title, completed: false }).unwrap();
+      await addTodo({ title: data.title, completed: false, deleted: false }).unwrap();
     } catch (error) {
       console.error('Ошибка при создании задачи:', error);
     }
@@ -57,12 +59,65 @@ function App() {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (todo: Todo) => {
     try {
-      await deleteTodo(id).unwrap();
+      await deleteTodo(todo).unwrap();
     } catch (error) {
       console.error('Ошибка при удалении задачи:', error);
     }
+  };
+
+  // Восстановление удаленной задачи
+  const handleRestore = async (todo: Todo) => {
+    try {
+      await updateTodo({ ...todo, deleted: false }).unwrap();
+    } catch (error) {
+      console.error('Ошибка при восстановлении задачи:', error);
+    }
+  };
+
+  // Очистка всех удаленных задач
+  const handleClearAllDeleted = async () => {
+    if (!todos) return;
+    
+    const deletedTodos = todos.filter(todo => todo.deleted);
+    
+    try {
+      // Удаляем все удаленные задачи параллельно
+      await Promise.all(
+        deletedTodos.map(todo => 
+          permanentlyDeleteTodo(todo.id).unwrap()
+        )
+      );
+    } catch (error) {
+      console.error('Ошибка при очистке удаленных задач:', error);
+    }
+  };
+
+  // Количество удаленных задач
+  const deletedCount = useMemo(() => {
+    return todos?.filter(item => item.deleted).length || 0;
+  }, [todos]);
+
+  // Фильтрация задач по вкладкам
+  const [activeTab, setActiveTab] = useState<string>('all');
+  
+  const filteredTodos = useMemo(() => {
+    if (!todos) return [];
+    
+    switch (activeTab) {
+      case 'completed':
+        return todos.filter(todo => todo.completed && !todo.deleted);
+      case 'deleted':
+        return todos.filter(todo => todo.deleted);
+      default:
+        return todos.filter(todo => !todo.deleted);
+    }
+  }, [todos, activeTab]);
+
+  // Обработчик клика на текст задачи - переключает статус выполнения
+  const handleTitleClick = async (todo: Todo) => {
+    await handleToggle(todo);
   };
 
   if (isLoading) return <Spin indicator={<LoadingOutlined spin />} size="large" style={{ display: 'block', margin: '50px auto' }} />;
@@ -78,38 +133,98 @@ function App() {
           <TodoForm onSubmit={handleCreate} isLoading={isAdding} btnText="Добавить" />
         </div>
 
+        {/* Вкладки */}
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'all',
+              label: `Все (${todos?.filter(item => !item.deleted).length || 0})`,
+            },
+            {
+              key: 'completed',
+              label: `Выполненные (${todos?.filter(item => item.completed && !item.deleted).length || 0})`,
+            },
+            {
+              key: 'deleted',
+              label: `Удаленные (${deletedCount})`,
+            },
+          ]}
+          style={{ marginBottom: 16 }}
+          tabBarExtraContent={
+            activeTab === 'deleted' && deletedCount > 0 ? (
+              <Popconfirm
+                title="Очистить все удаленные задачи?"
+                description="Это действие нельзя отменить. Все удаленные задачи будут безвозвратно удалены."
+                onConfirm={handleClearAllDeleted}
+                okText="Да, очистить"
+                cancelText="Отмена"
+                okButtonProps={{ danger: true }}
+              >
+                <Button
+                  danger
+                  icon={<ClearOutlined />}
+                  size="small"
+                >
+                  Очистить все
+                </Button>
+              </Popconfirm>
+            ) : null
+          }
+        />
+
         {/* Список задач */}
         <List
           bordered
-          dataSource={todos || []}
+          dataSource={filteredTodos}
           renderItem={(item) => (
             <List.Item
-              actions={[
-                <Button 
-                  key="edit"
-                  icon={<EditOutlined />} 
-                  onClick={() => handleEditClick(item)} 
-                />,
-                <Button 
-                  key="delete"
-                  danger 
-                  icon={<DeleteOutlined />} 
-                  onClick={() => handleDelete(item.id)} 
-                />
-              ]}
+              actions={
+                item.deleted
+                  ? [
+                      <Button
+                        key="restore"
+                        type="primary"
+                        icon={<UndoOutlined />}
+                        onClick={() => handleRestore(item)}
+                      >
+                        Восстановить
+                      </Button>
+                    ]
+                  : [
+                      <Button 
+                        key="edit"
+                        icon={<EditOutlined />} 
+                        onClick={() => handleEditClick(item)}
+                      />,
+                      <Button 
+                        key="delete"
+                        danger 
+                        icon={<DeleteOutlined />} 
+                        onClick={() => handleDelete(item)}
+                      />
+                    ]
+              }
             >
               <List.Item.Meta
                 avatar={
                   <Checkbox 
                     checked={item.completed} 
-                    onChange={() => handleToggle(item)} 
+                    onChange={() => handleToggle(item)}
+                    disabled={item.deleted}
                   />
                 }
                 title={
-                  <span style={{ 
-                    textDecoration: item.completed ? 'line-through' : 'none',
-                    color: item.completed ? '#999' : 'inherit'
-                  }}>
+                  <span 
+                    onClick={() => !item.deleted && handleTitleClick(item)}
+                    style={{ 
+                      textDecoration: item.completed ? 'line-through' : 'none',
+                      color: item.completed ? '#999' : item.deleted ? '#ccc' : 'inherit',
+                      cursor: item.deleted ? 'default' : 'pointer',
+                      userSelect: 'none'
+                    }}
+                  >
                     {item.title}
                   </span>
                 }
