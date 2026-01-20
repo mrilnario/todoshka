@@ -1,12 +1,12 @@
-import React, { useState } from 'react'
-import { List, Checkbox, Button, Modal, Card, Typography, Spin } from 'antd';
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import React, { useState, useMemo } from 'react';
+import { List, Checkbox, Button, Modal, Card, Typography, Spin, Tabs } from 'antd';
+import { DeleteOutlined, EditOutlined, LoadingOutlined, UndoOutlined } from '@ant-design/icons';
 import {
   useGetTodosQuery,
   useAddTodoMutation,
   useUpdateTodoMutation,
   useDeleteTodoMutation,
-  Todo
+  type Todo
 } from './store/api';
 import { TodoForm } from './TodoForm';
 
@@ -25,7 +25,11 @@ function App() {
 
   // Обработчики
   const handleCreate = async (data: { title: string }) => {
-    await addTodo({ title: data.title, completed: false });
+    try {
+      await addTodo({ title: data.title, completed: false, deleted: false }).unwrap();
+    } catch (error) {
+      console.error('Ошибка при создании задачи:', error);
+    }
   };
 
   const handleEditClick = (todo: Todo) => {
@@ -35,63 +39,147 @@ function App() {
 
   const handleUpdateSubmit = async (data: { title: string }) => {
     if (editingTodo) {
-      await updateTodo({ ...editingTodo, title: data.title });
-      setIsModalOpen(false);
-      setEditingTodo(null);
+      try {
+        await updateTodo({ ...editingTodo, title: data.title }).unwrap();
+        setIsModalOpen(false);
+        setEditingTodo(null);
+      } catch (error) {
+        console.error('Ошибка при обновлении задачи:', error);
+      }
     }
   };
 
-  const handleToggle = (todo: Todo) => {
-    updateTodo({ ...todo, completed: !todo.completed });
+  const handleToggle = async (todo: Todo) => {
+    try {
+      await updateTodo({ ...todo, completed: !todo.completed }).unwrap();
+    } catch (error) {
+      console.error('Ошибка при изменении статуса задачи:', error);
+    }
   };
 
-  const handleDelete = (id: number) => {
-    deleteTodo(id);
+  const handleDelete = async (todo: Todo) => {
+    try {
+      await deleteTodo(todo).unwrap();
+    } catch (error) {
+      console.error('Ошибка при удалении задачи:', error);
+    }
   };
 
-  if (isLoading) return <Spin size="large" style={{ display: 'block', margin: '50px auto' }} />;
-  if (isError) return <div>Ошибка загрузки данных :( Проверь, запущен ли json-server</div>;
+  // Восстановление удаленной задачи
+  const handleRestore = async (todo: Todo) => {
+    try {
+      await updateTodo({ ...todo, deleted: false }).unwrap();
+    } catch (error) {
+      console.error('Ошибка при восстановлении задачи:', error);
+    }
+  };
+
+  // Фильтрация задач по вкладкам
+  const [activeTab, setActiveTab] = useState<string>('all');
+  
+  const filteredTodos = useMemo(() => {
+    if (!todos) return [];
+    
+    switch (activeTab) {
+      case 'completed':
+        return todos.filter(todo => todo.completed && !todo.deleted);
+      case 'deleted':
+        return todos.filter(todo => todo.deleted);
+      default:
+        return todos.filter(todo => !todo.deleted);
+    }
+  }, [todos, activeTab]);
+
+  // Обработчик клика на текст задачи - переключает статус выполнения
+  const handleTitleClick = async (todo: Todo) => {
+    await handleToggle(todo);
+  };
+
+  if (isLoading) return <Spin indicator={<LoadingOutlined spin />} size="large" style={{ display: 'block', margin: '50px auto' }} />;
+  if (isError) return <div style={{ textAlign: 'center', fontSize: '24px', fontWeight: 'bold', color: 'darkblue' }}>500 — Internal Server Error</div>;
 
   return (
     <div style={{ maxWidth: 600, margin: '50px auto', padding: '0 20px' }}>
       <Card>
-        <Title level={2} style={{ textAlign: 'center' }}>TODO LIST (RTK + Antd)</Title>
+        <Title level={1} style={{ textAlign: 'center' }}>todos</Title>
         
         {/* Форма создания */}
         <div style={{ display: 'flex', justifyContent: 'center' }}>
           <TodoForm onSubmit={handleCreate} isLoading={isAdding} btnText="Добавить" />
         </div>
 
+        {/* Вкладки */}
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'all',
+              label: `Все (${todos?.filter(t => !t.deleted).length || 0})`,
+            },
+            {
+              key: 'completed',
+              label: `Выполненные (${todos?.filter(t => t.completed && !t.deleted).length || 0})`,
+            },
+            {
+              key: 'deleted',
+              label: `Удаленные (${todos?.filter(t => t.deleted).length || 0})`,
+            },
+          ]}
+          style={{ marginBottom: 16 }}
+        />
+
         {/* Список задач */}
         <List
           bordered
-          dataSource={todos}
+          dataSource={filteredTodos}
           renderItem={(item) => (
             <List.Item
-              actions={[
-                <Button 
-                  icon={<EditOutlined />} 
-                  onClick={() => handleEditClick(item)} 
-                />,
-                <Button 
-                  danger 
-                  icon={<DeleteOutlined />} 
-                  onClick={() => handleDelete(item.id)} 
-                />
-              ]}
+              actions={
+                item.deleted
+                  ? [
+                      <Button
+                        key="restore"
+                        type="primary"
+                        icon={<UndoOutlined />}
+                        onClick={() => handleRestore(item)}
+                      >
+                        Восстановить
+                      </Button>
+                    ]
+                  : [
+                      <Button 
+                        key="edit"
+                        icon={<EditOutlined />} 
+                        onClick={() => handleEditClick(item)}
+                      />,
+                      <Button 
+                        key="delete"
+                        danger 
+                        icon={<DeleteOutlined />} 
+                        onClick={() => handleDelete(item)}
+                      />
+                    ]
+              }
             >
               <List.Item.Meta
                 avatar={
                   <Checkbox 
                     checked={item.completed} 
-                    onChange={() => handleToggle(item)} 
+                    onChange={() => handleToggle(item)}
+                    disabled={item.deleted}
                   />
                 }
                 title={
-                  <span style={{ 
-                    textDecoration: item.completed ? 'line-through' : 'none',
-                    color: item.completed ? '#999' : 'inherit'
-                  }}>
+                  <span 
+                    onClick={() => !item.deleted && handleTitleClick(item)}
+                    style={{ 
+                      textDecoration: item.completed ? 'line-through' : 'none',
+                      color: item.completed ? '#999' : item.deleted ? '#ccc' : 'inherit',
+                      cursor: item.deleted ? 'default' : 'pointer',
+                      userSelect: 'none'
+                    }}
+                  >
                     {item.title}
                   </span>
                 }
@@ -105,9 +193,11 @@ function App() {
       <Modal
         title="Редактировать задачу"
         open={isModalOpen}
-        onCancel={() => setIsModalOpen(false)}
-        footer={null} // Скрываем стандартный футер, используем кнопку формы
-        destroyOnClose
+        onCancel={() => {
+          setIsModalOpen(false);
+          setEditingTodo(null);
+        }}
+        footer={null}
       >
         {editingTodo && (
           <TodoForm 
